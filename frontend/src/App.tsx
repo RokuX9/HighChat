@@ -22,7 +22,7 @@ import {
 } from "firebase/firestore";
 import { Device, types } from "mediasoup-client";
 import "./App.css";
-import { Consumer } from "mediasoup-client/lib/Consumer.js";
+import { Transport } from "mediasoup-client/lib/Transport.js";
 
 function App() {
   const provider = new GoogleAuthProvider();
@@ -71,117 +71,113 @@ function App() {
           </div>
           <button
             onClick={async () => {
+              let producersCreated: {
+                audioProducer: boolean;
+                videoProducer: boolean;
+              } = {
+                audioProducer: false,
+                videoProducer: false,
+              };
+              let sendTransport: types.Transport;
+              let recvTransport: types.Transport;
               const roomRef = doc(db, `rooms/${callIdInputRef.current!.value}`);
               const roomData = (await getDoc(roomRef)).data();
               await device.load({
                 routerRtpCapabilities: roomData!.rtpCapabilities,
               });
-              const serverOptions: types.TransportOptions = {
-                id: roomData!.id,
-                iceParameters: roomData!.iceParameters,
-                iceCandidates: roomData!.iceCandidates,
-                dtlsParameters: roomData!.dtlsParameters,
-              };
-              const sendTransporter = device.createSendTransport(serverOptions);
-              const recvTransporter = device.createRecvTransport(serverOptions);
 
-              let userRef: DocumentReference;
-              let sendTransportCollection: CollectionReference;
-              let recvTransportCollection: CollectionReference;
-              const streamArray: Array<MediaStreamTrack> = [];
-              sendTransporter.on(
-                "connect",
-                async ({ dtlsParameters }, callback, errback) => {
-                  const usersCollection = collection(roomRef, "users");
-                  try {
-                    userRef = await addDoc(usersCollection, {
-                      userId: auth.currentUser!.uid,
-                      transportId: sendTransporter.id,
-                      name: auth.currentUser!.displayName,
-                      sendParameters: dtlsParameters,
-                      rtpCapabilities: device.rtpCapabilities,
-                    });
-                    sendTransportCollection = collection(
-                      userRef,
-                      "sendTransporter"
-                    );
-                    recvTransportCollection = collection(
-                      userRef,
-                      "recvTransporter"
-                    );
-                    callback();
-                  } catch (err: any) {
-                    errback(err);
-                  }
-                  onSnapshot(recvTransportCollection, async (snapshot) => {
-                    snapshot.docChanges().forEach(async (change) => {
-                      if (change.type === "added") {
-                        const data = change.doc.data();
-                        const consumer = await recvTransporter.consume({
-                          id: data.consumerId,
-                          producerId: data.producerId,
-                          kind: data.kind,
-                          rtpParameters: data.rtpParameters,
+              const usersCollection = collection(roomRef, "users");
+              const userRef = doc(usersCollection, auth.currentUser!.uid);
+              await setDoc(userRef, {
+                name: auth.currentUser!.displayName,
+                rtpCapabilities: device.rtpCapabilities,
+              });
+              const producersCollection = collection(userRef, "producers");
+              const unsubscribe = onSnapshot(userRef, async (snapshot) => {
+                if (
+                  snapshot.exists() &&
+                  snapshot.data()!.transportsConfig &&
+                  !snapshot.metadata.hasPendingWrites
+                ) {
+                  const { transportsConfig } = snapshot.data();
+                  sendTransport = device.createSendTransport(
+                    transportsConfig!.sendTransport
+                  );
+                  recvTransport = device.createRecvTransport(
+                    transportsConfig!.recvTransport
+                  );
+                  sendTransport.on(
+                    "connect",
+                    async ({ dtlsParameters }, callback, errback) => {
+                      try {
+                        await updateDoc(userRef, {
+                          sendDtls: dtlsParameters,
                         });
-                        consumer.resume();
-                        remoteStream.addTrack(consumer.track);
+                        callback();
+                      } catch (err: any) {
+                        errback(err);
                       }
-                    });
+                    }
+                  );
+                  sendTransport.on(
+                    "produce",
+                    async (parameters, callback, errback) => {
+                      try {
+                        const producerRef = doc(producersCollection);
+                        await setDoc(producerRef, {
+                          transportId: sendTransport.id,
+                          kind: parameters.kind,
+                          rtpParameters: parameters.rtpParameters,
+                        });
+                        onSnapshot(producerRef, async (snapshot) => {
+                          if (snapshot.exists()) {
+                            callback({ id: snapshot.data()!.serverProducerId });
+                            console.log("server answer on producer");
+                          }
+                        });
+                      } catch (err: any) {
+                        errback(err);
+                      }
+                    }
+                  );
+                  recvTransport.on(
+                    "connect",
+                    async ({ dtlsParameters }, callback, errback) => {
+                      try {
+                        await updateDoc(userRef, { recvDtls: dtlsParameters });
+                        callback();
+                      } catch (err: any) {
+                        errback(err);
+                      }
+                    }
+                  );
+                }
+                console.log("transports created!");
+                if (
+                  !producersCreated.audioProducer ||
+                  !producersCreated.videoProducer
+                ) {
+                  const stream = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: true,
                   });
-                }
-              );
-
-              sendTransporter.on(
-                "produce",
-                async (parameters, callback, errback) => {
-                  try {
-                    const sendTransporterRef = await addDoc(
-                      sendTransportCollection,
-                      {
-                        kind: parameters.kind,
-                        rtpParameters: parameters.rtpParameters,
-                        transportId: sendTransporter.id,
-                      }
-                    );
-
-                    let producerId: string;
-                    onSnapshot(sendTransporterRef, async (snapshot) => {
-                      producerId = snapshot.data()!.serverAnswer;
-                      callback({ id: producerId });
+                  if (!producersCreated.audioProducer) {
+                    producersCreated.audioProducer = true;
+                    const audioTrack = stream.getAudioTracks()[0];
+                    const audioProducer = await sendTransport!.produce({
+                      track: audioTrack,
                     });
-                  } catch (err: any) {
-                    errback(err);
+                    console.log("created Audio Producer");
+                  }
+                  if (!producersCreated.videoProducer) {
+                    producersCreated.videoProducer = true;
+                    const videoTrack = stream.getVideoTracks()[0];
+                    const videoProducer = await sendTransport!.produce({
+                      track: videoTrack,
+                    });
+                    console.log("created Video Producer");
                   }
                 }
-              );
-
-              recvTransporter.on(
-                "connect",
-                async ({ dtlsParameters }, callback, errback) => {
-                  console.log("hello");
-                  try {
-                    await setDoc(userRef, {
-                      recvParameters: dtlsParameters,
-                    });
-                    callback();
-                  } catch (err: any) {
-                    errback(err);
-                  }
-                }
-              );
-
-              const stream = await navigator.mediaDevices.getUserMedia({
-                video: true,
-                audio: true,
-              });
-              localVideoRef.current!.srcObject = stream;
-              const audioTrack = stream.getAudioTracks()[0];
-              const videoTrack = stream.getVideoTracks()[0];
-              const videoProducer = await sendTransporter.produce({
-                track: videoTrack,
-              });
-              const audioProducer = await sendTransporter.produce({
-                track: audioTrack,
               });
             }}
           >
