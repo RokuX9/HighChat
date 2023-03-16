@@ -31,6 +31,7 @@ function App() {
 
 	const [callId, setCallId] = React.useState<String>("");
 	const [remoteStream, setRemoteStream] = React.useState(new MediaStream());
+	const [localStream, setLocalStream] = React.useState(new MediaStream());
 
 	const localVideoRef = React.useRef<HTMLVideoElement | null>(null);
 	const remoteVideoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -42,6 +43,12 @@ function App() {
 			console.log(remoteStream.getVideoTracks(), remoteVideoRef.current);
 		}
 	}, [remoteVideoRef, remoteStream]);
+
+	React.useEffect(() => {
+		if (localVideoRef.current) {
+			localVideoRef.current.srcObject = localStream;
+		}
+	}, [localVideoRef, localStream]);
 
 	return (
 		<div className="App">
