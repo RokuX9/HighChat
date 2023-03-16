@@ -30,35 +30,25 @@ function App() {
 	const device = new Device();
 
 	const [callId, setCallId] = React.useState<String>("");
-	const [remoteStream, setRemoteStream] = React.useState(new MediaStream());
-	const [localStream, setLocalStream] = React.useState(new MediaStream());
-	localStream.addEventListener("addtrack", (e) => {
-		const newStream = localStream.clone();
-		newStream.addTrack(e.track);
-		setLocalStream(newStream);
-	});
-	remoteStream.addEventListener("addtrack", (e) => {
-		const newStream = remoteStream.clone();
-		newStream.addTrack(e.track);
-		setRemoteStream(newStream);
-	});
+	const remoteStream = React.useRef(new MediaStream());
+	const localStream = React.useRef(new MediaStream());
 
 	const localVideoRef = React.useRef<HTMLVideoElement | null>(null);
 	const remoteVideoRef = React.useRef<HTMLVideoElement | null>(null);
 	const callIdInputRef = React.useRef<HTMLInputElement | null>(null);
 
 	React.useEffect(() => {
-		if (remoteVideoRef.current) {
-			remoteVideoRef.current.srcObject = remoteStream;
-			console.log(remoteStream.getVideoTracks(), remoteVideoRef.current);
+		if (
+			localVideoRef.current &&
+			remoteVideoRef.current &&
+			remoteStream.current &&
+			localStream.current
+		) {
+			localVideoRef.current.srcObject = localStream.current;
+			remoteVideoRef.current.srcObject = remoteStream.current;
+			console.log("set streams");
 		}
-	}, [remoteVideoRef, remoteStream]);
-
-	React.useEffect(() => {
-		if (localVideoRef.current) {
-			localVideoRef.current.srcObject = localStream;
-		}
-	}, [localVideoRef, localStream]);
+	}, [localVideoRef, remoteVideoRef, localStream, remoteStream]);
 
 	return (
 		<div className="App">
@@ -189,8 +179,13 @@ function App() {
 									const audioTrack = stream.getAudioTracks()[0];
 									const videoTrack = stream.getVideoTracks()[0];
 
-									localStream.addTrack(audioTrack);
-									localStream.addTrack(videoTrack);
+									localStream.current.addTrack(audioTrack);
+									localStream.current.addTrack(videoTrack);
+									console.log(
+										localStream.current.getAudioTracks(),
+										localStream.current.getVideoTracks(),
+										localVideoRef.current
+									);
 									if (!producersCreated.audioProducer && sendTransport) {
 										producersCreated.audioProducer = true;
 										const audioProducer = await sendTransport!.produce({
@@ -219,8 +214,7 @@ function App() {
 											rtpParameters,
 										});
 										consumer.resume();
-										remoteStream.addTrack(consumer.track);
-										setRemoteStream(remoteStream);
+										remoteStream.current.addTrack(consumer.track);
 										await setDoc(change.doc.ref, {
 											clientConsumer: consumer.id,
 										});
