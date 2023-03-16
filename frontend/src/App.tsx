@@ -39,6 +39,7 @@ function App() {
 	React.useEffect(() => {
 		if (remoteVideoRef.current) {
 			remoteVideoRef.current.srcObject = remoteStream;
+			console.log(remoteStream.getVideoTracks(), remoteVideoRef.current);
 		}
 	}, [remoteVideoRef, remoteStream]);
 
@@ -187,19 +188,24 @@ function App() {
 								}
 							});
 							onSnapshot(consumersCollection, (snapshot) => {
-								snapshot.docChanges().forEach(async (change) => {
-									const { consumerId, producerId, kind, rtpParameters } =
-										change.doc.data();
-									const consumer = await recvTransport.consume({
-										id: consumerId,
-										producerId,
-										kind,
-										rtpParameters,
+								if (recvTransport && !snapshot.metadata.hasPendingWrites) {
+									snapshot.docChanges().forEach(async (change) => {
+										const { consumerId, producerId, kind, rtpParameters } =
+											change.doc.data();
+										const consumer = await recvTransport.consume({
+											id: consumerId,
+											producerId,
+											kind,
+											rtpParameters,
+										});
+										consumer.resume();
+										remoteStream.addTrack(consumer.track);
+										setRemoteStream(remoteStream);
+										await setDoc(change.doc.ref, {
+											clientConsumer: consumer.id,
+										});
 									});
-									consumer.resume();
-									remoteStream.addTrack(consumer.track);
-									setRemoteStream(remoteStream);
-								});
+								}
 							});
 						}}
 					>

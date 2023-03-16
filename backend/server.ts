@@ -119,7 +119,9 @@ const topLevelAsync = async () => {
 								snapshot.data()!.recvDtls &&
 								recvTransport.iceState === "new"
 							) {
-								recvTransport.connect(snapshot.data()!.recvDtls);
+								recvTransport.connect({
+									dtlsParameters: snapshot.data()!.recvDtls,
+								});
 								console.log("recvTransport Connected");
 							}
 						}
@@ -165,6 +167,9 @@ const topLevelAsync = async () => {
 											producerId: producer.id,
 											kind,
 											rtpParameters: consumer.rtpParameters,
+										});
+										consumerRef.onSnapshot((snapshot) => {
+											if (snapshot.exists) consumer.resume();
 										});
 									}
 								});
