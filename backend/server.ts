@@ -126,24 +126,33 @@ const topLevelAsync = async () => {
 					});
 					const producersCollection = change.doc.ref.collection("producers");
 					producersCollection.onSnapshot((snapshot) => {
-						snapshot.docChanges().forEach(async (change) => {
-							if (change.type === "added") {
-								const { transportId, kind, rtpParameters } = change.doc.data();
+						snapshot.docChanges().forEach(async (change2) => {
+							if (change2.type === "added") {
+								const { transportId, kind, rtpParameters } = change2.doc.data();
 								const producer = await sendTransport.produce({
 									//id: transportId
 									kind,
 									rtpParameters,
 								});
-								await change.doc.ref.update({
+								await change2.doc.ref.update({
 									serverProducer: producer.id,
 								});
 								const currentUsers = await usersCollection
-									.where(firestore.FieldPath.documentId(), "!=", change.doc.id)
+									.where(
+										firestore.FieldPath.documentId(),
+										"!=",
+										change.doc.ref.id
+									)
 									.get();
 								currentUsers.forEach(async (user) => {
 									const consumersColletion = user.ref.collection("consumers");
 									const { rtpCapabilities } = user.data();
-									if (router.canConsume(rtpCapabilities)) {
+									if (
+										router.canConsume({
+											producerId: producer.id,
+											rtpCapabilities,
+										})
+									) {
 										const consumer = await recvTransport.consume({
 											producerId: producer.id,
 											rtpCapabilities,
@@ -151,6 +160,7 @@ const topLevelAsync = async () => {
 										});
 										const consumerRef = consumersColletion.doc();
 										await consumerRef.set({
+											userId: change.doc.ref.id,
 											consumerId: consumer.id,
 											producerId: producer.id,
 											kind,
@@ -162,17 +172,22 @@ const topLevelAsync = async () => {
 							}
 						});
 					});
-					if (router.canConsume(change.doc.data().rtpCapabilities)) {
-						const consumersColletion = change.doc.ref.collection("consumers");
-						const currentUsers = await usersCollection
-							.where(firestore.FieldPath.documentId(), "!=", change.doc.id)
-							.get();
-						currentUsers.forEach(async (user) => {
-							const userProcuersColletion = user.ref.collection("producers");
-							const producers = await userProcuersColletion.get();
-							producers.forEach(async (userProducer) => {
-								const { serverProducer, kind } = userProducer.data();
-								const { rtpCapabilities } = change.doc.data();
+					const consumersColletion = change.doc.ref.collection("consumers");
+					const currentUsers = await usersCollection
+						.where(firestore.FieldPath.documentId(), "!=", change.doc.ref.id)
+						.get();
+					currentUsers.forEach(async (user) => {
+						const userProcuersColletion = user.ref.collection("producers");
+						const producers = await userProcuersColletion.get();
+						producers.forEach(async (userProducer) => {
+							const { serverProducer, kind } = userProducer.data();
+							const { rtpCapabilities } = change.doc.data();
+							if (
+								router.canConsume({
+									producerId: serverProducer,
+									rtpCapabilities: change.doc.data().rtpCapabilities,
+								})
+							) {
 								const consumer = await recvTransport.consume({
 									producerId: serverProducer,
 									rtpCapabilities,
@@ -180,14 +195,15 @@ const topLevelAsync = async () => {
 								});
 								const consumerRef = consumersColletion.doc();
 								await consumerRef.set({
+									userId: user.id,
 									consumerId: consumer.id,
 									producerId: serverProducer,
 									kind,
 									rtpParameters: consumer.rtpParameters,
 								});
-							});
+							}
 						});
-					}
+					});
 				}
 			});
 		});
