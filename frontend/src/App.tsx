@@ -47,6 +47,7 @@ function App() {
 			localVideoRef.current.srcObject = localStream.current;
 			remoteVideoRef.current.srcObject = remoteStream.current;
 			console.log("set streams");
+			console.log(remoteStream.current.getTracks(), remoteVideoRef.current);
 		}
 	}, [localVideoRef, remoteVideoRef, localStream, remoteStream]);
 
@@ -213,9 +214,8 @@ function App() {
 											kind,
 											rtpParameters,
 										});
-										consumer.resume();
 										remoteStream.current.addTrack(consumer.track);
-										await setDoc(change.doc.ref, {
+										await updateDoc(change.doc.ref, {
 											clientConsumer: consumer.id,
 										});
 									});

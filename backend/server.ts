@@ -168,8 +168,11 @@ const topLevelAsync = async () => {
 											kind,
 											rtpParameters: consumer.rtpParameters,
 										});
-										consumerRef.onSnapshot((snapshot) => {
-											if (snapshot.exists) consumer.resume();
+										consumerRef.onSnapshot(async (snapshot) => {
+											if (snapshot.exists) {
+												await consumer.resume();
+												console.log("consumer Resumed");
+											}
 										});
 									}
 								});
