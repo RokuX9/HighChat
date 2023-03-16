@@ -36,6 +36,12 @@ function App() {
 	const remoteVideoRef = React.useRef<HTMLVideoElement | null>(null);
 	const callIdInputRef = React.useRef<HTMLInputElement | null>(null);
 
+	React.useEffect(() => {
+		if (remoteVideoRef.current) {
+			remoteVideoRef.current.srcObject = remoteStream;
+		}
+	}, [remoteVideoRef, remoteStream]);
+
 	return (
 		<div className="App">
 			<header className="header">
@@ -190,7 +196,9 @@ function App() {
 										kind,
 										rtpParameters,
 									});
-									remoteStream.addTrack(consumer);
+									consumer.resume();
+									remoteStream.addTrack(consumer.track);
+									setRemoteStream(remoteStream);
 								});
 							});
 						}}
