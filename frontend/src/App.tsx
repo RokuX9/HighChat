@@ -32,6 +32,16 @@ function App() {
 	const [callId, setCallId] = React.useState<String>("");
 	const [remoteStream, setRemoteStream] = React.useState(new MediaStream());
 	const [localStream, setLocalStream] = React.useState(new MediaStream());
+	localStream.addEventListener("addtrack", (e) => {
+		const newStream = localStream.clone();
+		newStream.addTrack(e.track);
+		setLocalStream(newStream);
+	});
+	remoteStream.addEventListener("addtrack", (e) => {
+		const newStream = remoteStream.clone();
+		newStream.addTrack(e.track);
+		setRemoteStream(newStream);
+	});
 
 	const localVideoRef = React.useRef<HTMLVideoElement | null>(null);
 	const remoteVideoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -176,9 +186,13 @@ function App() {
 										video: true,
 										audio: true,
 									});
+									const audioTrack = stream.getAudioTracks()[0];
+									const videoTrack = stream.getVideoTracks()[0];
+
+									localStream.addTrack(audioTrack);
+									localStream.addTrack(videoTrack);
 									if (!producersCreated.audioProducer && sendTransport) {
 										producersCreated.audioProducer = true;
-										const audioTrack = stream.getAudioTracks()[0];
 										const audioProducer = await sendTransport!.produce({
 											track: audioTrack,
 										});
@@ -186,7 +200,6 @@ function App() {
 									}
 									if (!producersCreated.videoProducer && sendTransport) {
 										producersCreated.videoProducer = true;
-										const videoTrack = stream.getVideoTracks()[0];
 										const videoProducer = await sendTransport!.produce({
 											track: videoTrack,
 										});
