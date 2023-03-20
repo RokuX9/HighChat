@@ -204,7 +204,7 @@ function App() {
 								}
 							});
 							onSnapshot(consumersCollection, (snapshot) => {
-								if (recvTransport && !snapshot.metadata.hasPendingWrites) {
+								if (recvTransport) {
 									snapshot.docChanges().forEach(async (change) => {
 										const { consumerId, producerId, kind, rtpParameters } =
 											change.doc.data();
