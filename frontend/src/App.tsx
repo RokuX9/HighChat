@@ -30,24 +30,19 @@ function App() {
 	const device = new Device();
 
 	const [callId, setCallId] = React.useState<String>("");
-	const remoteStream = React.useRef(new MediaStream());
-	const localStream = React.useRef(new MediaStream());
+	const remoteStream = new MediaStream();
+	const localStream = new MediaStream();
 
 	const localVideoRef = React.useRef<HTMLVideoElement | null>(null);
 	const remoteVideoRef = React.useRef<HTMLVideoElement | null>(null);
 	const callIdInputRef = React.useRef<HTMLInputElement | null>(null);
 
 	React.useEffect(() => {
-		if (
-			localVideoRef.current &&
-			remoteVideoRef.current &&
-			remoteStream.current &&
-			localStream.current
-		) {
-			localVideoRef.current.srcObject = localStream.current;
-			remoteVideoRef.current.srcObject = remoteStream.current;
+		if (localVideoRef.current && remoteVideoRef.current) {
+			localVideoRef.current.srcObject = localStream;
+			remoteVideoRef.current.srcObject = remoteStream;
 			console.log("set streams");
-			console.log(remoteStream.current.getTracks(), remoteVideoRef.current);
+			console.log(remoteStream.getTracks(), remoteVideoRef.current);
 		}
 	}, [localVideoRef, remoteVideoRef, localStream, remoteStream]);
 
@@ -180,11 +175,11 @@ function App() {
 									const audioTrack = stream.getAudioTracks()[0];
 									const videoTrack = stream.getVideoTracks()[0];
 
-									localStream.current.addTrack(audioTrack);
-									localStream.current.addTrack(videoTrack);
+									localStream.addTrack(audioTrack);
+									localStream.addTrack(videoTrack);
 									console.log(
-										localStream.current.getAudioTracks(),
-										localStream.current.getVideoTracks(),
+										localStream.getAudioTracks(),
+										localStream.getVideoTracks(),
 										localVideoRef.current
 									);
 									if (!producersCreated.audioProducer && sendTransport) {
@@ -214,7 +209,7 @@ function App() {
 											kind,
 											rtpParameters,
 										});
-										remoteStream.current.addTrack(consumer.track);
+										remoteStream.addTrack(consumer.track);
 										await updateDoc(change.doc.ref, {
 											clientConsumer: consumer.id,
 										});
