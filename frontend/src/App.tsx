@@ -213,6 +213,7 @@ function App() {
 										await updateDoc(change.doc.ref, {
 											clientConsumer: consumer.id,
 										});
+										consumer.resume();
 									});
 								}
 							});
