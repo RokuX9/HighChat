@@ -59,7 +59,7 @@ const runAsync = async () => {
 					producers: [],
 					consumers: [],
 				};
-				thisRoom?.users.push(user);
+				thisRoom!.users.push(user);
 				socket.emit("transport-config", {
 					sendTransport: {
 						id: sendTransport.id,
@@ -93,7 +93,7 @@ const runAsync = async () => {
 			"recvtransport-connect",
 			async ({ dtlsParameters, roomId, userId }, callback) => {
 				const thisRoom = rooms.find((room) => room.id === roomId);
-				const thisUser = thisRoom?.users.find((user) => user.id === userId);
+				const thisUser = thisRoom!.users.find((user) => user.id === userId);
 				await thisUser?.recvTransport.connect({ dtlsParameters });
 				callback("recvtransport-connected");
 				const otherUsers = thisRoom!.users.filter(
@@ -130,12 +130,13 @@ const runAsync = async () => {
 			async ({ parameters, roomId, userId }, callback) => {
 				const thisRoom = rooms.find((room) => room.id === roomId);
 				const thisUser = thisRoom?.users.find((user) => user.id === userId);
-				const producer = await thisUser?.sendTransport.produce({
+				console.log(thisRoom);
+				const producer = await thisUser!.sendTransport.produce({
 					kind: parameters.kind,
 					rtpParameters: parameters.rtpParameters,
 				});
 				if (producer) {
-					thisUser?.producers.push(producer);
+					thisUser!.producers.push(producer);
 					const otherUsers = thisRoom?.users.filter(
 						(user) => user.id !== thisUser?.id
 					);
@@ -174,6 +175,10 @@ const runAsync = async () => {
 				callback("consumer-resumed");
 			}
 		);
+
+		socket.on("check-status", (roomId) => {
+			console.log(rooms.find((room) => room.id === roomId)?.users);
+		});
 	});
 
 	server.listen(3000, () => {

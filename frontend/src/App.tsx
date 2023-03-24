@@ -129,8 +129,9 @@ function App() {
 												socket.emit(
 													"producer-create",
 													{
-														kind: parameters.kind,
-														rtpParameters: parameters.rtpParameters,
+														parameters,
+														roomId: roomRef.id,
+														userId: auth.currentUser?.uid,
 													},
 													(producerId: string) => {
 														callback({ id: producerId });
@@ -172,16 +173,16 @@ function App() {
 									const videoTrack = stream.getVideoTracks()[0];
 									localStream.addTrack(audioTrack);
 									localStream.addTrack(videoTrack);
-
+									console.log("hello");
 									const audioProducer = await sendTransport!.produce({
 										track: audioTrack,
 									});
 									const videoProducer = await sendTransport!.produce({
 										track: videoTrack,
 									});
-
+									console.log(videoProducer, audioProducer);
 									socket.on(
-										"cosumer-create",
+										"consumer-create",
 										async ({ id, producerId, kind, rtpParameters, userId }) => {
 											const consumer = await recvTransport.consume({
 												id,
@@ -196,9 +197,10 @@ function App() {
 													roomId: roomRef.id,
 													userId: auth.currentUser!.uid,
 												},
-												() => {
+												(res: string) => {
 													consumer.resume();
 													remoteStream.addTrack(consumer.track);
+													console.log(res);
 												}
 											);
 										}
@@ -215,7 +217,13 @@ function App() {
 					<div>
 						<p>Enter Call ID</p>
 						<input type="text" ref={callIdInputRef} />
-						<button>Answer Call</button>
+						<button
+							onClick={() => {
+								socket.emit("check-status", callIdInputRef.current?.value);
+							}}
+						>
+							Answer Call
+						</button>
 					</div>
 				</main>
 			) : (
