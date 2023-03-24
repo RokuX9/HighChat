@@ -37,7 +37,7 @@ const topLevelAsync = async () => {
 		listenInfos: [
 			{
 				protocol: "udp",
-				ip: "10.100.102.37",
+				ip: "192.168.1.111",
 			},
 		],
 	});
@@ -85,9 +85,15 @@ const topLevelAsync = async () => {
 				if (change.type === "added") {
 					const sendTransport = await router.createWebRtcTransport({
 						webRtcServer,
+						enableTcp: true,
+						enableUdp: true,
+						preferUdp: true,
 					});
 					const recvTransport = await router.createWebRtcTransport({
 						webRtcServer,
+						enableTcp: true,
+						enableUdp: true,
+						preferUdp: true,
 					});
 					const transportsConfig = {
 						sendTransport: {
@@ -208,6 +214,12 @@ const topLevelAsync = async () => {
 									producerId: serverProducer,
 									kind,
 									rtpParameters: consumer.rtpParameters,
+								});
+								consumerRef.onSnapshot(async (newDoc) => {
+									if (newDoc.exists) {
+										await consumer.resume();
+										console.log("consumer resumed");
+									}
 								});
 							}
 						});

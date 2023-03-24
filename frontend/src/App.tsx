@@ -22,12 +22,13 @@ import {
 } from "firebase/firestore";
 import { Device, types } from "mediasoup-client";
 import "./App.css";
-import { Transport } from "mediasoup-client/lib/Transport.js";
+import { io } from "socket.io-client";
 
 function App() {
 	const provider = new GoogleAuthProvider();
 	const [user] = useAuthState(auth);
 	const device = new Device();
+	const socket = io("http://localhost:3000");
 
 	const [callId, setCallId] = React.useState<String>("");
 	const remoteStream = new MediaStream();
@@ -42,7 +43,6 @@ function App() {
 			localVideoRef.current.srcObject = localStream;
 			remoteVideoRef.current.srcObject = remoteStream;
 			console.log("set streams");
-			console.log(remoteStream.getTracks(), remoteVideoRef.current);
 		}
 	}, [localVideoRef, remoteVideoRef, localStream, remoteStream]);
 
@@ -81,13 +81,6 @@ function App() {
 					</div>
 					<button
 						onClick={async () => {
-							let producersCreated: {
-								audioProducer: boolean;
-								videoProducer: boolean;
-							} = {
-								audioProducer: false,
-								videoProducer: false,
-							};
 							let sendTransport: types.Transport;
 							let recvTransport: types.Transport;
 							const roomRef = doc(db, `rooms/${callIdInputRef.current!.value}`);
@@ -95,36 +88,35 @@ function App() {
 							await device.load({
 								routerRtpCapabilities: roomData!.rtpCapabilities,
 							});
-
-							const usersCollection = collection(roomRef, "users");
-							const userRef = doc(usersCollection, auth.currentUser!.uid);
-							await setDoc(userRef, {
-								name: auth.currentUser!.displayName,
+							socket.emit("join-room", {
 								rtpCapabilities: device.rtpCapabilities,
+								roomId: roomRef.id,
+								userId: auth.currentUser?.uid,
 							});
-							const producersCollection = collection(userRef, "producers");
-							const consumersCollection = collection(userRef, "consumers");
-							const unsubscribe = onSnapshot(userRef, async (snapshot) => {
-								if (
-									snapshot.exists() &&
-									snapshot.data()!.transportsConfig &&
-									!snapshot.metadata.hasPendingWrites
-								) {
-									const { transportsConfig } = snapshot.data();
-									sendTransport = device.createSendTransport(
-										transportsConfig!.sendTransport
-									);
-									recvTransport = device.createRecvTransport(
-										transportsConfig!.recvTransport
-									);
+							socket.on(
+								"transport-config",
+								async ({
+									sendTransport: sendConfig,
+									recvTransport: recvConfig,
+								}) => {
+									sendTransport = device.createSendTransport(sendConfig);
+									recvTransport = device.createRecvTransport(recvConfig);
 									sendTransport.on(
 										"connect",
 										async ({ dtlsParameters }, callback, errback) => {
 											try {
-												await updateDoc(userRef, {
-													sendDtls: dtlsParameters,
-												});
-												callback();
+												socket.emit(
+													"sendtransport-connect",
+													{
+														dtlsParameters,
+														roomId: roomRef.id,
+														userId: auth.currentUser!.uid,
+													},
+													(res: string) => {
+														console.log(res);
+														callback();
+													}
+												);
 											} catch (err: any) {
 												errback(err);
 											}
@@ -134,18 +126,17 @@ function App() {
 										"produce",
 										async (parameters, callback, errback) => {
 											try {
-												const producerRef = doc(producersCollection);
-												await setDoc(producerRef, {
-													transportId: sendTransport.id,
-													kind: parameters.kind,
-													rtpParameters: parameters.rtpParameters,
-												});
-												onSnapshot(producerRef, async (snapshot) => {
-													if (snapshot.exists()) {
-														callback({ id: snapshot.data()!.serverProducerId });
-														console.log("server answer on producer");
+												socket.emit(
+													"producer-create",
+													{
+														kind: parameters.kind,
+														rtpParameters: parameters.rtpParameters,
+													},
+													(producerId: string) => {
+														callback({ id: producerId });
+														console.log(`${parameters.kind} producer created!`);
 													}
-												});
+												);
 											} catch (err: any) {
 												errback(err);
 											}
@@ -155,68 +146,65 @@ function App() {
 										"connect",
 										async ({ dtlsParameters }, callback, errback) => {
 											try {
-												await updateDoc(userRef, { recvDtls: dtlsParameters });
-												callback();
+												socket.emit(
+													"recvtransport-connect",
+													{
+														dtlsParameters,
+														roomId: roomRef.id,
+														userId: auth.currentUser!.uid,
+													},
+													(res: string) => {
+														console.log(res);
+														callback();
+													}
+												);
 											} catch (err: any) {
 												errback(err);
 											}
 										}
 									);
-								}
-								console.log("transports created!");
-								if (
-									!producersCreated.audioProducer ||
-									!producersCreated.videoProducer
-								) {
+
 									const stream = await navigator.mediaDevices.getUserMedia({
 										video: true,
 										audio: true,
 									});
 									const audioTrack = stream.getAudioTracks()[0];
 									const videoTrack = stream.getVideoTracks()[0];
-
 									localStream.addTrack(audioTrack);
 									localStream.addTrack(videoTrack);
-									console.log(
-										localStream.getAudioTracks(),
-										localStream.getVideoTracks(),
-										localVideoRef.current
-									);
-									if (!producersCreated.audioProducer && sendTransport) {
-										producersCreated.audioProducer = true;
-										const audioProducer = await sendTransport!.produce({
-											track: audioTrack,
-										});
-										console.log("created Audio Producer");
-									}
-									if (!producersCreated.videoProducer && sendTransport) {
-										producersCreated.videoProducer = true;
-										const videoProducer = await sendTransport!.produce({
-											track: videoTrack,
-										});
-										console.log("created Video Producer");
-									}
-								}
-							});
-							onSnapshot(consumersCollection, (snapshot) => {
-								if (recvTransport) {
-									snapshot.docChanges().forEach(async (change) => {
-										const { consumerId, producerId, kind, rtpParameters } =
-											change.doc.data();
-										const consumer = await recvTransport.consume({
-											id: consumerId,
-											producerId,
-											kind,
-											rtpParameters,
-										});
-										remoteStream.addTrack(consumer.track);
-										await updateDoc(change.doc.ref, {
-											clientConsumer: consumer.id,
-										});
-										consumer.resume();
+
+									const audioProducer = await sendTransport!.produce({
+										track: audioTrack,
 									});
+									const videoProducer = await sendTransport!.produce({
+										track: videoTrack,
+									});
+
+									socket.on(
+										"cosumer-create",
+										async ({ id, producerId, kind, rtpParameters, userId }) => {
+											const consumer = await recvTransport.consume({
+												id,
+												producerId,
+												kind,
+												rtpParameters,
+											});
+											socket.emit(
+												"consumer-created",
+												{
+													id,
+													roomId: roomRef.id,
+													userId: auth.currentUser!.uid,
+												},
+												() => {
+													consumer.resume();
+													remoteStream.addTrack(consumer.track);
+												}
+											);
+										}
+									);
 								}
-							});
+							);
 						}}
 					>
 						Start call Session
