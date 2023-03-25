@@ -206,6 +206,10 @@ function App() {
 											);
 										}
 									);
+									socket.emit("ready-to-consume", {
+										roomId: roomRef.id,
+										userId: auth.currentUser!.uid,
+									});
 								}
 							);
 						}}

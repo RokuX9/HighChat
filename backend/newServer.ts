@@ -95,34 +95,6 @@ const runAsync = async () => {
 				const thisRoom = rooms.find((room) => room.id === roomId);
 				const thisUser = thisRoom!.users.find((user) => user.id === userId);
 				await thisUser?.recvTransport.connect({ dtlsParameters });
-
-				const otherUsers = thisRoom!.users.filter(
-					(user) => user.id !== thisUser!.id
-				);
-				otherUsers.forEach((user) => {
-					user.producers.forEach(async (producer) => {
-						if (
-							thisRoom!.router.canConsume({
-								producerId: producer.id,
-								rtpCapabilities: thisUser!.rtpCapabilities,
-							})
-						) {
-							const consumer = await thisUser!.recvTransport.consume({
-								producerId: producer.id,
-								rtpCapabilities: thisUser!.rtpCapabilities,
-								paused: true,
-							});
-							thisUser!.consumers.push(consumer);
-							socket.emit("consumer-create", {
-								id: consumer.id,
-								producerId: producer.id,
-								kind: consumer.kind,
-								rtpParameters: consumer.rtpParameters,
-								userId: user.id,
-							});
-						}
-					});
-				});
 				callback("recvtransport-connected");
 			}
 		);
@@ -141,7 +113,6 @@ const runAsync = async () => {
 					const otherUsers = thisRoom?.users.filter(
 						(user) => user.id !== thisUser?.id
 					);
-					console.log(otherUsers);
 					otherUsers?.forEach(async (user) => {
 						if (
 							thisRoom?.router.canConsume({
@@ -180,6 +151,38 @@ const runAsync = async () => {
 				callback("consumer-resumed");
 			}
 		);
+
+		socket.on("ready-to-consume", ({ roomId, userId }) => {
+			const thisRoom = rooms.find((room) => room.id === roomId);
+			const thisUser = thisRoom?.users.find((user) => user.id === userId);
+			const otherUsers = thisRoom!.users.filter(
+				(user) => user.id !== thisUser!.id
+			);
+			otherUsers.forEach((user) => {
+				user.producers.forEach(async (producer) => {
+					if (
+						thisRoom!.router.canConsume({
+							producerId: producer.id,
+							rtpCapabilities: thisUser!.rtpCapabilities,
+						})
+					) {
+						const consumer = await thisUser!.recvTransport.consume({
+							producerId: producer.id,
+							rtpCapabilities: thisUser!.rtpCapabilities,
+							paused: true,
+						});
+						thisUser!.consumers.push(consumer);
+						socket.emit("consumer-create", {
+							id: consumer.id,
+							producerId: producer.id,
+							kind: consumer.kind,
+							rtpParameters: consumer.rtpParameters,
+							userId: user.id,
+						});
+					}
+				});
+			});
+		});
 
 		socket.on("check-status", (roomId) => {
 			console.log(rooms.find((room) => room.id === roomId)?.users);
