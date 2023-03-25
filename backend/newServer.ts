@@ -95,7 +95,7 @@ const runAsync = async () => {
 				const thisRoom = rooms.find((room) => room.id === roomId);
 				const thisUser = thisRoom!.users.find((user) => user.id === userId);
 				await thisUser?.recvTransport.connect({ dtlsParameters });
-				callback("recvtransport-connected");
+
 				const otherUsers = thisRoom!.users.filter(
 					(user) => user.id !== thisUser!.id
 				);
@@ -112,6 +112,7 @@ const runAsync = async () => {
 								rtpCapabilities: thisUser!.rtpCapabilities,
 								paused: true,
 							});
+							thisUser!.consumers.push(consumer);
 							socket.emit("consumer-create", {
 								id: consumer.id,
 								producerId: producer.id,
@@ -122,6 +123,7 @@ const runAsync = async () => {
 						}
 					});
 				});
+				callback("recvtransport-connected");
 			}
 		);
 
@@ -130,7 +132,6 @@ const runAsync = async () => {
 			async ({ parameters, roomId, userId }, callback) => {
 				const thisRoom = rooms.find((room) => room.id === roomId);
 				const thisUser = thisRoom?.users.find((user) => user.id === userId);
-				console.log(thisRoom);
 				const producer = await thisUser!.sendTransport.produce({
 					kind: parameters.kind,
 					rtpParameters: parameters.rtpParameters,
@@ -140,6 +141,7 @@ const runAsync = async () => {
 					const otherUsers = thisRoom?.users.filter(
 						(user) => user.id !== thisUser?.id
 					);
+					console.log(otherUsers);
 					otherUsers?.forEach(async (user) => {
 						if (
 							thisRoom?.router.canConsume({
@@ -152,6 +154,7 @@ const runAsync = async () => {
 								rtpCapabilities: user.rtpCapabilities,
 								paused: true,
 							});
+							user.consumers.push(consumer);
 							socket.broadcast.to(roomId).emit("consumer-create", {
 								id: consumer.id,
 								producerId: producer.id,
@@ -159,9 +162,9 @@ const runAsync = async () => {
 								rtpParameters: consumer.rtpParameters,
 								userId: thisUser?.id,
 							});
-							callback(producer.id);
 						}
 					});
+					callback(producer.id);
 				}
 			}
 		);
@@ -170,7 +173,9 @@ const runAsync = async () => {
 			async ({ id: consumerId, roomId, userId }, callback) => {
 				const thisRoom = rooms.find((room) => room.id === roomId);
 				const thisUser = thisRoom?.users.find((user) => user.id === userId);
-				const consumer = thisUser?.consumers.find(consumerId);
+				const consumer = thisUser?.consumers.find(
+					(userConsumer) => userConsumer.id === consumerId
+				);
 				await consumer?.resume();
 				callback("consumer-resumed");
 			}

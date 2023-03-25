@@ -134,8 +134,8 @@ function App() {
 														userId: auth.currentUser?.uid,
 													},
 													(producerId: string) => {
-														callback({ id: producerId });
 														console.log(`${parameters.kind} producer created!`);
+														callback({ id: producerId });
 													}
 												);
 											} catch (err: any) {
@@ -180,10 +180,11 @@ function App() {
 									const videoProducer = await sendTransport!.produce({
 										track: videoTrack,
 									});
-									console.log(videoProducer, audioProducer);
+
 									socket.on(
 										"consumer-create",
 										async ({ id, producerId, kind, rtpParameters, userId }) => {
+											console.log("consuming");
 											const consumer = await recvTransport.consume({
 												id,
 												producerId,
