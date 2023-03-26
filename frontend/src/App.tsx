@@ -8,21 +8,17 @@ import {
 } from "firebase/auth";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { auth, db } from "./firebase/firebase.js";
-import {
-	collection,
-	addDoc,
-	setDoc,
-	onSnapshot,
-	getDoc,
-	updateDoc,
-	doc,
-	DocumentData,
-	DocumentReference,
-	CollectionReference,
-} from "firebase/firestore";
+import { getDoc, doc } from "firebase/firestore";
 import { Device, types } from "mediasoup-client";
 import "./App.css";
 import { io } from "socket.io-client";
+import Views from "./components/views/Views";
+
+interface Participant {
+	id: string;
+	stream: MediaStream;
+	consumers: Array<types.Consumer>;
+}
 
 function App() {
 	const provider = new GoogleAuthProvider();
@@ -30,21 +26,12 @@ function App() {
 	const device = new Device();
 	const socket = io("http://localhost:3000");
 
+	const [participants, setParticipants] = React.useState<Array<Participant>>(
+		[]
+	);
+
 	const [callId, setCallId] = React.useState<String>("");
-	const remoteStream = new MediaStream();
-	const localStream = new MediaStream();
-
-	const localVideoRef = React.useRef<HTMLVideoElement | null>(null);
-	const remoteVideoRef = React.useRef<HTMLVideoElement | null>(null);
 	const callIdInputRef = React.useRef<HTMLInputElement | null>(null);
-
-	React.useEffect(() => {
-		if (localVideoRef.current && remoteVideoRef.current) {
-			localVideoRef.current.srcObject = localStream;
-			remoteVideoRef.current.srcObject = remoteStream;
-			console.log("set streams");
-		}
-	}, [localVideoRef, remoteVideoRef, localStream, remoteStream]);
 
 	return (
 		<div className="App">
@@ -63,22 +50,7 @@ function App() {
 			</header>
 			{user ? (
 				<main className="main">
-					<div className="views">
-						<video
-							ref={localVideoRef}
-							className="userVideo"
-							id="localVideo"
-							autoPlay
-							playsInline
-						></video>
-						<video
-							ref={remoteVideoRef}
-							className="userVideo"
-							id="remoteVideo"
-							autoPlay
-							playsInline
-						></video>
-					</div>
+					<Views participants={participants} />
 					<button
 						onClick={async () => {
 							let sendTransport: types.Transport;
@@ -169,10 +141,15 @@ function App() {
 										video: true,
 										audio: true,
 									});
+									const me = {
+										id: auth.currentUser!.uid,
+										stream: new MediaStream(),
+										consumers: [],
+									};
 									const audioTrack = stream.getAudioTracks()[0];
 									const videoTrack = stream.getVideoTracks()[0];
-									localStream.addTrack(audioTrack);
-									localStream.addTrack(videoTrack);
+									me.stream.addTrack(videoTrack);
+									setParticipants([me]);
 									console.log("hello");
 									const audioProducer = await sendTransport!.produce({
 										track: audioTrack,
@@ -191,6 +168,28 @@ function App() {
 												kind,
 												rtpParameters,
 											});
+											let participant = participants.find(
+												(p) => p.id === userId
+											);
+											if (!participant) {
+												participant = {
+													id: userId,
+													stream: new MediaStream(),
+													consumers: [],
+												};
+											}
+											participant.stream.addTrack(consumer.track);
+											participant.consumers.push(consumer);
+											setParticipants((ps) => {
+												const filteredParticipants = ps.filter(
+													(p) => p.id !== participant!.id
+												);
+
+												return [
+													...filteredParticipants,
+													participant as Participant,
+												];
+											});
 											socket.emit(
 												"consumer-created",
 												{
@@ -200,7 +199,6 @@ function App() {
 												},
 												(res: string) => {
 													consumer.resume();
-													remoteStream.addTrack(consumer.track);
 													console.log(res);
 												}
 											);

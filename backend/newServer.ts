@@ -75,7 +75,6 @@ const runAsync = async () => {
 					},
 				});
 				socket.join(roomId);
-				socket.broadcast.to(roomId).emit("new-user-joined", userId);
 			}
 		});
 

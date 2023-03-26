@@ -3,15 +3,3 @@
 	margin: 0 auto;
 	text-align: center;
 }
-
-.views {
-	display: flex;
-	justify-content: space-between;
-	width: 1000px;
-}
-
-.userVideo {
-	height: 300px;
-	width: 400px;
-	background-color: gray;
-}
