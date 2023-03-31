@@ -2,8 +2,10 @@ import express from "express";
 import { Server } from "socket.io";
 import http from "http";
 import { db } from "./firebase/firebase";
+import { Timestamp } from "firebase-admin/firestore";
 import * as mediasoup from "mediasoup";
 import { mediaCodecs, listenIps } from "./utils/msConfig";
+import { firestore } from "firebase-admin";
 
 interface User {
 	id: string;
@@ -15,6 +17,7 @@ interface User {
 }
 
 const app = express();
+app.use(express.json());
 const server = http.createServer(app);
 const io = new Server(server, {
 	cors: {
@@ -31,52 +34,70 @@ const runAsync = async () => {
 	}> = [];
 	const mediaWorker = await mediasoup.createWorker();
 
-	app.get("/make-room", async (req, res, next) => {
-		const router = await mediaWorker.createRouter({
-			mediaCodecs,
+	io.on("connection", async (socket) => {
+		socket.on("get-rooms", async (callback) => {
+			const roomsForUser: Array<any> = [];
+			const allRooms = await roomsCollection.get();
+			allRooms.docs.forEach((room) => {
+				roomsForUser.push({ id: room.id, name: room.data()!.name });
+			});
+			callback(roomsForUser);
 		});
-		const roomRef = roomsCollection.doc();
-		await roomRef.set({ rtpCapabilities: router.rtpCapabilities });
-		rooms.push({ id: roomRef.id, router, users: [] });
-		res.status(200).send(roomRef.id);
-	});
 
-	io.on("connection", (socket) => {
-		socket.on("join-room", async ({ rtpCapabilities, roomId, userId }) => {
-			const thisRoom = rooms.find((room) => room.id === roomId);
-			const sendTransport = await thisRoom?.router.createWebRtcTransport({
-				listenIps,
-			});
-			const recvTransport = await thisRoom?.router.createWebRtcTransport({
-				listenIps,
-			});
-			if (sendTransport && recvTransport) {
-				const user: User = {
-					id: userId as string,
-					rtpCapabilities,
-					sendTransport,
-					recvTransport,
-					producers: [],
-					consumers: [],
-				};
-				thisRoom!.users.push(user);
-				socket.emit("transport-config", {
-					sendTransport: {
-						id: sendTransport.id,
-						iceParameters: sendTransport.iceParameters,
-						iceCandidates: sendTransport.iceCandidates,
-						dtlsParameters: sendTransport.dtlsParameters,
-					},
-					recvTransport: {
-						id: recvTransport.id,
-						iceParameters: recvTransport.iceParameters,
-						iceCandidates: recvTransport.iceCandidates,
-						dtlsParameters: recvTransport.dtlsParameters,
-					},
-				});
-				socket.join(roomId);
-			}
+		socket.on("join-room", (roomId) => {
+			socket.join(roomId);
 		});
+
+		socket.on("create-room", async (roomName, callback) => {
+			const router = await mediaWorker.createRouter({
+				mediaCodecs,
+			});
+			const roomRef = roomsCollection.doc();
+			await roomRef.set({
+				name: roomName,
+				rtpCapabilities: router.rtpCapabilities,
+			});
+			rooms.push({ id: roomRef.id, router, users: [] });
+			callback({ id: roomRef.id, name: roomName });
+		});
+
+		socket.on(
+			"start-call",
+			async ({ rtpCapabilities, roomId, userId }, callback) => {
+				const thisRoom = rooms.find((room) => room.id === roomId);
+				const sendTransport = await thisRoom?.router.createWebRtcTransport({
+					listenIps,
+				});
+				const recvTransport = await thisRoom?.router.createWebRtcTransport({
+					listenIps,
+				});
+				if (sendTransport && recvTransport) {
+					const user: User = {
+						id: userId as string,
+						rtpCapabilities,
+						sendTransport,
+						recvTransport,
+						producers: [],
+						consumers: [],
+					};
+					thisRoom!.users.push(user);
+					callback({
+						sendTransport: {
+							id: sendTransport.id,
+							iceParameters: sendTransport.iceParameters,
+							iceCandidates: sendTransport.iceCandidates,
+							dtlsParameters: sendTransport.dtlsParameters,
+						},
+						recvTransport: {
+							id: recvTransport.id,
+							iceParameters: recvTransport.iceParameters,
+							iceCandidates: recvTransport.iceCandidates,
+							dtlsParameters: recvTransport.dtlsParameters,
+						},
+					});
+				}
+			}
+		);
 
 		socket.on(
 			"sendtransport-connect",
@@ -181,6 +202,34 @@ const runAsync = async () => {
 					}
 				});
 			});
+		});
+
+		socket.on("get-messages", async (roomId, callback) => {
+			const roomRef = roomsCollection.doc(roomId);
+			const messagesCollection = roomRef.collection("messages");
+			const messagesRefArray = await messagesCollection
+				.orderBy("date", "asc")
+				.get();
+			const messages: Array<firestore.DocumentData> = [];
+			messagesRefArray.docs.forEach((message) => {
+				const data = message.data();
+				messages.push({ id: message.id, ...data });
+			});
+			callback(messages);
+		});
+
+		socket.on("send-message", async ({ roomId, userId, text }, callback) => {
+			const roomRef = roomsCollection.doc(roomId);
+			const messagesCollection = roomRef.collection("messages");
+			const messageRef = messagesCollection.doc();
+			await messageRef.set({ owner: userId, text, date: Timestamp.now() });
+			const { date } = (
+				await messageRef.get()
+			).data() as firestore.DocumentData;
+			socket.broadcast
+				.to(roomId)
+				.emit("recv-message", { id: messageRef.id, userId, text, date });
+			callback({ id: messageRef.id, userId, text, date });
 		});
 
 		socket.on("check-status", (roomId) => {
