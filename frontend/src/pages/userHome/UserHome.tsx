@@ -2,11 +2,14 @@ import React from "react";
 import { Routes, Route } from "react-router-dom";
 import { io } from "socket.io-client";
 import { Paper, Divider, Container, IconButton, Drawer } from "@mui/material";
-import { Menu } from "@mui/icons-material";
-import "./UserHome.css";
+import { Search, Add } from "@mui/icons-material";
 import RoomsList from "../../components/roomsList/RoomsList";
 import RoomWindow from "../../components/roomWindow/RoomWindow";
 import ToolbarDrawer from "../../components/toolbarDrawer/ToolbarDrawer";
+import CreateUser from "../../components/createUser/CreateUser";
+import { db } from "../../firebase/firebase";
+import { collection, doc, getDoc } from "firebase/firestore";
+import UserContext from "../../contexts/UserContext";
 
 interface Room {
 	id: string;
@@ -17,7 +20,11 @@ export default function UserHome(props: React.ComponentPropsWithRef<"main">) {
 	const [rooms, setRooms] = React.useState<Array<Room>>([]);
 	const [roomId, setRoomId] = React.useState<string>("");
 	const [drawerOpen, setDraweOpen] = React.useState<boolean>(false);
+	const [createUserModalOpen, setCreateUserModalOpen] =
+		React.useState<boolean>(false);
 	const socket = io("http://localhost:3000");
+
+	const user = React.useContext(UserContext);
 
 	const closeDrawer = () => {
 		setDraweOpen(false);
@@ -27,18 +34,40 @@ export default function UserHome(props: React.ComponentPropsWithRef<"main">) {
 		setDraweOpen(true);
 	};
 
+	const createUser = (name: string, username: string) => {
+		socket.emit(
+			"create-user",
+			{ userId: user!.uid, displayName: name, uniqueId: username },
+			() => {
+				setCreateUserModalOpen(false);
+			}
+		);
+	};
+
 	const createRoom = (roomName: string) => {
-		console.log(roomName);
-		socket.emit("create-room", roomName, (res: Room) => {
-			setRooms((rooms) => [res, ...rooms]);
-			closeDrawer();
-		});
+		socket.emit(
+			"create-room",
+			{ roomName: roomName, userId: user!.uid },
+			(res: Room) => {
+				setRooms((rooms) => [res, ...rooms]);
+				closeDrawer();
+			}
+		);
 	};
 
 	React.useEffect(() => {
-		socket.emit("get-rooms", (res: Array<Room>) => {
-			setRooms(res);
-		});
+		(async () => {
+			const usersColletion = collection(db, "users");
+			const userRef = doc(usersColletion, user!.uid);
+			const docSnap = await getDoc(userRef);
+			if (docSnap.exists()) {
+				socket.emit("get-rooms", { userId: user!.uid }, (res: Array<Room>) => {
+					setRooms(res);
+				});
+			} else {
+				setCreateUserModalOpen(true);
+			}
+		})();
 	}, []);
 
 	return (
@@ -46,6 +75,7 @@ export default function UserHome(props: React.ComponentPropsWithRef<"main">) {
 			disableGutters
 			sx={{ display: "flex", flex: 1, paddingBottom: 3 }}
 		>
+			<CreateUser open={createUserModalOpen} createUser={createUser} />
 			<ToolbarDrawer
 				drawerState={drawerOpen}
 				closeDrawer={closeDrawer}
@@ -61,9 +91,15 @@ export default function UserHome(props: React.ComponentPropsWithRef<"main">) {
 					alignItems: "center",
 				}}
 			>
-				<IconButton onClick={openDrawer}>
-					<Menu />
-				</IconButton>
+				<Container sx={{ display: "flex", justifyContent: "space-evenly" }}>
+					<IconButton onClick={openDrawer}>
+						<Add />
+					</IconButton>
+					<IconButton>
+						<Search />
+					</IconButton>
+				</Container>
+
 				<Divider sx={{ width: 1 }} />
 
 				<RoomsList roomsList={rooms} />

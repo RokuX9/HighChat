@@ -42,7 +42,7 @@ export default function Views({ socket, roomId, ...props }: ViewsProps) {
 					roomId: roomId,
 					userId: user!.uid,
 				},
-				(res: {
+				async (res: {
 					sendTransport: types.TransportOptions;
 					recvTransport: types.TransportOptions;
 				}) => {
@@ -108,73 +108,72 @@ export default function Views({ socket, roomId, ...props }: ViewsProps) {
 							}
 						}
 					);
-				}
-			);
-			const stream = await navigator.mediaDevices.getUserMedia({
-				video: true,
-				audio: true,
-			});
-			const me = {
-				id: user!.uid,
-				stream: new MediaStream(),
-				consumers: [],
-			};
-			const audioTrack = stream.getAudioTracks()[0];
-			const videoTrack = stream.getVideoTracks()[0];
-			me.stream.addTrack(videoTrack);
-			setParticipants([me]);
-			console.log("hello");
-			const audioProducer = await sendTransport!.produce({
-				track: audioTrack,
-			});
-			const videoProducer = await sendTransport!.produce({
-				track: videoTrack,
-			});
-			socket.on(
-				"consumer-create",
-				async ({ id, producerId, kind, rtpParameters, userId }) => {
-					console.log("consuming");
-					const consumer = await recvTransport.consume({
-						id,
-						producerId,
-						kind,
-						rtpParameters,
+					const stream = await navigator.mediaDevices.getUserMedia({
+						video: true,
+						audio: true,
 					});
-					let participant = participants.find((p) => p.id === userId);
-					if (!participant) {
-						participant = {
-							id: userId,
-							stream: new MediaStream(),
-							consumers: [],
-						};
-					}
-					participant.stream.addTrack(consumer.track);
-					participant.consumers.push(consumer);
-					setParticipants((ps) => {
-						const filteredParticipants = ps.filter(
-							(p) => p.id !== participant!.id
-						);
+					const me = {
+						id: user!.uid,
+						stream: new MediaStream(),
+						consumers: [],
+					};
+					const audioTrack = stream.getAudioTracks()[0];
+					const videoTrack = stream.getVideoTracks()[0];
+					me.stream.addTrack(videoTrack);
+					setParticipants([me]);
+					const audioProducer = await sendTransport!.produce({
+						track: audioTrack,
+					});
+					const videoProducer = await sendTransport!.produce({
+						track: videoTrack,
+					});
+					socket.on(
+						"consumer-create",
+						async ({ id, producerId, kind, rtpParameters, userId }) => {
+							console.log("consuming");
+							const consumer = await recvTransport.consume({
+								id,
+								producerId,
+								kind,
+								rtpParameters,
+							});
+							let participant = participants.find((p) => p.id === userId);
+							if (!participant) {
+								participant = {
+									id: userId,
+									stream: new MediaStream(),
+									consumers: [],
+								};
+							}
+							participant.stream.addTrack(consumer.track);
+							participant.consumers.push(consumer);
+							setParticipants((ps) => {
+								const filteredParticipants = ps.filter(
+									(p) => p.id !== participant!.id
+								);
 
-						return [...filteredParticipants, participant as Participant];
-					});
-					socket.emit(
-						"consumer-created",
-						{
-							id,
-							roomId: roomRef.id,
-							userId: user!.uid,
-						},
-						(res: string) => {
-							consumer.resume();
-							console.log(res);
+								return [...filteredParticipants, participant as Participant];
+							});
+							socket.emit(
+								"consumer-created",
+								{
+									id,
+									roomId: roomRef.id,
+									userId: user!.uid,
+								},
+								(res: string) => {
+									consumer.resume();
+									console.log(res);
+								}
+							);
 						}
 					);
+					socket.emit("ready-to-consume", {
+						roomId: roomRef.id,
+						userId: user!.uid,
+					});
 				}
 			);
-			socket.emit("ready-to-consume", {
-				roomId: roomRef.id,
-				userId: user!.uid,
-			});
 		})();
 	}, []);
 	return (

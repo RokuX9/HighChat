@@ -12,5 +12,13 @@ export default function View(props: ViewProps) {
 			videoRef.current.srcObject = props.stream;
 		}
 	}, [videoRef, props.stream]);
-	return <video ref={videoRef} className="view" autoPlay playsInline />;
+	return (
+		<video
+			ref={videoRef}
+			className="view"
+			autoPlay
+			playsInline
+			key={props.key}
+		/>
+	);
 }

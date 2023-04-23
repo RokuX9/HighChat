@@ -27,6 +27,7 @@ const io = new Server(server, {
 
 const runAsync = async () => {
 	const roomsCollection = db.collection("rooms");
+	const usersCollection = db.collection("users");
 	const rooms: Array<{
 		id: string;
 		router: mediasoup.types.Router;
@@ -35,9 +36,27 @@ const runAsync = async () => {
 	const mediaWorker = await mediasoup.createWorker();
 
 	io.on("connection", async (socket) => {
-		socket.on("get-rooms", async (callback) => {
+		socket.on(
+			"create-user",
+			async ({ userId, displayName, uniqueId }, callback) => {
+				const userRef = usersCollection.doc(userId);
+				const queryUniqueId = usersCollection.where("uniqueId", "==", uniqueId);
+				const docSnap = await queryUniqueId.get();
+				if (docSnap.docs[0]) {
+					socket.emit("username-taken");
+				} else {
+					userRef.set({ displayName, uniqueId });
+					callback("user-created");
+				}
+			}
+		);
+
+		socket.on("get-rooms", async ({ userId }, callback) => {
 			const roomsForUser: Array<any> = [];
-			const allRooms = await roomsCollection.get();
+			const userRef = await usersCollection
+				.where(firestore.FieldPath.documentId(), "==", userId)
+				.get();
+			const allRooms = await userRef.docs[0].ref.collection("rooms").get();
 			allRooms.docs.forEach((room) => {
 				roomsForUser.push({ id: room.id, name: room.data()!.name });
 			});
@@ -48,15 +67,22 @@ const runAsync = async () => {
 			socket.join(roomId);
 		});
 
-		socket.on("create-room", async (roomName, callback) => {
+		socket.on("create-room", async ({ roomName, userId }, callback) => {
 			const router = await mediaWorker.createRouter({
 				mediaCodecs,
 			});
+			const userRef = db.collection("users").doc(userId);
+			const userSnap = await userRef.get();
 			const roomRef = roomsCollection.doc();
+			const userRoomRef = userRef.collection("rooms").doc(roomRef.id);
+			const roomUserRef = roomRef.collection("users").doc(userRef.id);
+			await userRoomRef.set({ name: roomName });
+			await roomUserRef.set({ displayName: userSnap.data()!.displayName });
 			await roomRef.set({
 				name: roomName,
 				rtpCapabilities: router.rtpCapabilities,
 			});
+
 			rooms.push({ id: roomRef.id, router, users: [] });
 			callback({ id: roomRef.id, name: roomName });
 		});

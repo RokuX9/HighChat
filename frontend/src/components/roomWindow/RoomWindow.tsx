@@ -6,7 +6,6 @@ import SendIcon from "@mui/icons-material/Send";
 import { Socket } from "socket.io-client";
 import UserContext from "../../contexts/UserContext";
 import Views from "../views/Views";
-import { Timestamp } from "firebase/firestore";
 
 interface MessageInterface {
 	id: string;

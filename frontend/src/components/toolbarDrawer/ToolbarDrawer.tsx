@@ -7,7 +7,10 @@ import {
 	FormLabel,
 	Button,
 	Typography,
+	Divider,
 } from "@mui/material";
+import UserContext from "../../contexts/UserContext";
+import AddFriend from "../addFriend/AddFriend";
 
 interface ToolbarDrawerProps extends React.ComponentPropsWithoutRef<"div"> {
 	drawerState: boolean;
@@ -17,33 +20,36 @@ interface ToolbarDrawerProps extends React.ComponentPropsWithoutRef<"div"> {
 
 export default function ToolbarDrawer(props: ToolbarDrawerProps) {
 	const roomNameInputRef = React.useRef<HTMLInputElement>();
+	const user = React.useContext(UserContext);
 
 	return (
-		<Drawer open={props.drawerState} anchor="left" onClose={props.closeDrawer}>
-			<Container
-				sx={{
-					display: "flex",
-					flexDirection: "column",
-					alignItems: "center",
-					rowGap: 3,
-				}}
-			>
-				<Typography variant="h6">Create Room</Typography>
-				<form
-					onSubmit={(e) => {
-						console.log(roomNameInputRef.current!.value);
-						e.preventDefault();
-						props.createRoom(roomNameInputRef.current!.value);
-						roomNameInputRef.current!.value = "";
-					}}
-				>
-					<FormControl>
-						<FormLabel htmlFor="create-room">Room Name</FormLabel>
-						<Input inputRef={roomNameInputRef} id="create-room" type="text" />
-						<Button type="submit">Create</Button>
-					</FormControl>
-				</form>
+		<Drawer
+			open={props.drawerState}
+			anchor="left"
+			onClose={props.closeDrawer}
+			sx={{
+				display: "flex",
+				flexDirection: "column",
+				alignItems: "center",
+			}}
+		>
+			<Container>
+				<FormControl>
+					<FormLabel htmlFor="create-room">Room Name</FormLabel>
+					<Input inputRef={roomNameInputRef} id="create-room" type="text" />
+					<Button
+						onClick={() => {
+							props.createRoom(roomNameInputRef.current!.value);
+							roomNameInputRef.current!.value = "";
+						}}
+					>
+						Create
+					</Button>
+				</FormControl>
 			</Container>
+			<Divider sx={{ width: 1 }} />
+			<AddFriend />
+			<Divider sx={{ width: 1 }} />
 		</Drawer>
 	);
 }
