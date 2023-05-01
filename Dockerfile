@@ -26,7 +26,7 @@ ENV GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS
 COPY . .
 
 # Build the frontend
-RUN npm run build
+#RUN npm run build
 
 # Run the backend
 EXPOSE 3000
