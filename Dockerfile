@@ -4,6 +4,9 @@ FROM node:latest
 # Set working directory
 WORKDIR /app
 
+# Install required tools for environment
+RUN apt-get update && apt-get install -y python3.6 python3-pip build-essential
+
 # Copy package.json and package-lock.json for backend
 COPY backend/package*.json ./
 
@@ -15,9 +18,6 @@ COPY frontend/package*.json ./
 
 # Install dependencies for frontend
 RUN npm install
-
-# Install required tools for environment
-RUN apt-get update && apt-get install -y python3.6 python3-pip build-essential
 
 # Set environment variable
 ENV GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS
