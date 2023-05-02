@@ -1,29 +1,33 @@
 # Base image
-FROM node:14-alpine
+FROM node:latest
 
 # Set working directory
 WORKDIR /app
 
-# Install dependencies for building mediasoup
-RUN apk add --no-cache python3 make g++
+# Install required tools for environment
+RUN apt-get update && apt-get install -y python3.6 python3-pip build-essential
 
-# Install backend dependencies
+# Copy package.json and package-lock.json for backend
 COPY backend/package*.json ./
-RUN npm ci --production
 
-# Install frontend dependencies
-COPY frontend/package*.json ./frontend/
-RUN cd frontend && npm ci --production
+# Install dependencies for backend
+RUN npm install
 
-# Copy the rest of the code
+# Copy package.json and package-lock.json for frontend
+COPY frontend/package*.json ./
+
+# Install dependencies for frontend
+RUN npm install
+
+# Set environment variable
+ENV GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS
+
+# Copy the project files
 COPY . .
 
 # Build the frontend
-RUN cd frontend && npm run build
+#RUN npm run build
 
-# Expose ports
+# Run the backend
 EXPOSE 3000
-EXPOSE 4000
-
-# Start the server
 CMD ["npm", "run", "dev"]
