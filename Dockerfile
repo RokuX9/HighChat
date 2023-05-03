@@ -31,4 +31,4 @@ COPY . .
 # Run the backend
 EXPOSE 3000
 
-CMD ["npm", "run", "--prefix", "backend", "start"]
+CMD ["npm", "run", "--prefix", "backend", "dev"]
