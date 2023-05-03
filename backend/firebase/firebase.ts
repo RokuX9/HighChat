@@ -1,9 +1,8 @@
-const Mycredentials = require("./FirebaseAdminKey.json");
-import { initializeApp, cert } from "firebase-admin/app";
+import { initializeApp, applicationDefault } from "firebase-admin/app";
 import { initializeFirestore } from "firebase-admin/firestore";
 
 const firebaseApp = initializeApp({
-	credential: cert(Mycredentials),
+	credential: applicationDefault(),
 	storageBucket: "high-acfec.appspot.com",
 });
 
