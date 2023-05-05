@@ -25,4 +25,4 @@ RUN npm --prefix ./frontend install
 # Run the backend
 EXPOSE 3000
 
-CMD ["npm", "run", "--prefix", "backend", "dev"]
+CMD ["npm", "run", "--prefix", "backend", "start"]
