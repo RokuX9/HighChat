@@ -13,6 +13,6 @@
 	},
 	"scripts": {
 		"dev": "nodemon server.ts",
-		"start": "node dist/newServer.js"
+		"start": "node dist/server.js"
 	}
 }
