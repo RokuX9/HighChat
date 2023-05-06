@@ -1,101 +1,113 @@
-// Importing required modules and middleware
-import * as mediasoup from "mediasoup";
 import express from "express";
+import { Server } from "socket.io";
+import http from "http";
 import { db } from "./firebase/firebase";
-import { authenticate, AuthRequest } from "./middlewares/auth";
+import { Timestamp } from "firebase-admin/firestore";
+import * as mediasoup from "mediasoup";
+import { mediaCodecs, listenIps } from "./utils/msConfig";
 import { firestore } from "firebase-admin";
 
-// Extending Express.Request interface to include AuthRequest
-declare global {
-	namespace Express {
-		interface Request extends AuthRequest {}
-	}
+interface User {
+	id: string;
+	rtpCapabilities: mediasoup.types.RtpCapabilities;
+	sendTransport: mediasoup.types.Transport;
+	recvTransport: mediasoup.types.Transport;
+	producers: Array<mediasoup.types.Producer>;
+	consumers: Array<mediasoup.types.Consumer>;
 }
 
-// Defining interface for mediasoup room
-interface Room {
-	router: mediasoup.types.Router;
-	transporter: mediasoup.types.Transport;
-}
+const app = express();
+app.use(express.json());
+const server = http.createServer(app);
+const io = new Server(server, {
+	cors: {
+		origin: "*",
+	},
+});
 
-// Defining main function as an async function
-const topLevelAsync = async () => {
-	// Adding an exit event listener to the Node.js process
-	process.on("exit", () => {
-		console.log("exiting");
-		mediaWorker.close();
-	});
-
-	// Creating express app instance
-	const app = express();
-
-	// Creating mediasoup worker instance
+const runAsync = async () => {
+	const roomsCollection = db.collection("rooms");
+	const usersCollection = db.collection("users");
+	const rooms: Array<{
+		id: string;
+		router: mediasoup.types.Router;
+		users: Array<User>;
+	}> = [];
 	const mediaWorker = await mediasoup.createWorker();
 
-	// Creating WebRTC server with the worker instance
-	const webRtcServer = await mediaWorker.createWebRtcServer({
-		listenInfos: [
-			{
-				protocol: "udp",
-				ip: "192.168.1.111",
-			},
-		],
-	});
+	io.on("connection", async (socket) => {
+		socket.on(
+			"create-user",
+			async ({ userId, displayName, uniqueId }, callback) => {
+				const userRef = usersCollection.doc(userId);
+				const queryUniqueId = usersCollection.where("uniqueId", "==", uniqueId);
+				const docSnap = await queryUniqueId.get();
+				if (docSnap.docs[0]) {
+					socket.emit("username-taken");
+				} else {
+					userRef.set({ displayName, uniqueId });
+					callback("user-created");
+				}
+			}
+		);
 
-	// Adding express.json() middleware to parse request body
-	app.use(express.json());
-
-	// Authenticating user with authenticate middleware (commented out for now)
-	// app.use(authenticate)
-
-	// Defining route to create new mediasoup room
-	app.get("/make-room", async (req, res, next) => {
-		// Creating mediasoup router instance
-		const router = await mediaWorker.createRouter({
-			mediaCodecs: [
-				{
-					kind: "audio",
-					mimeType: "audio/opus",
-					clockRate: 48000,
-					channels: 2,
-				},
-				{
-					kind: "video",
-					mimeType: "video/VP8",
-					clockRate: 90000,
-					parameters: {
-						"x-google-start-bitrate": 1000,
-					},
-				},
-			],
+		socket.on("get-rooms", async ({ userId }, callback) => {
+			const roomsForUser: Array<any> = [];
+			const userRef = await usersCollection
+				.where(firestore.FieldPath.documentId(), "==", userId)
+				.get();
+			const allRooms = await userRef.docs[0].ref.collection("rooms").get();
+			allRooms.docs.forEach((room) => {
+				roomsForUser.push({ id: room.id, name: room.data()!.name });
+			});
+			callback(roomsForUser);
 		});
 
-		// Creating new room document in Firebase Firestore
-		const roomRef = db.collection("rooms").doc(router.id);
-		roomRef.set({
-			rtpCapabilities: router.rtpCapabilities,
+		socket.on("join-room", (roomId) => {
+			socket.join(roomId);
 		});
 
-		// Creating new collection for users in the room
-		const usersCollection = roomRef.collection("users");
+		socket.on("create-room", async ({ roomName, userId }, callback) => {
+			const router = await mediaWorker.createRouter({
+				mediaCodecs,
+			});
+			const userRef = db.collection("users").doc(userId);
+			const userSnap = await userRef.get();
+			const roomRef = roomsCollection.doc();
+			const userRoomRef = userRef.collection("rooms").doc(roomRef.id);
+			const roomUserRef = roomRef.collection("users").doc(userRef.id);
+			await userRoomRef.set({ name: roomName });
+			await roomUserRef.set({ displayName: userSnap.data()!.displayName });
+			await roomRef.set({
+				name: roomName,
+				rtpCapabilities: router.rtpCapabilities,
+			});
 
-		// Adding event listener to users collection to handle changes
-		usersCollection.onSnapshot((snapshot) => {
-			snapshot.docChanges().forEach(async (change) => {
-				if (change.type === "added") {
-					const sendTransport = await router.createWebRtcTransport({
-						webRtcServer,
-						enableTcp: true,
-						enableUdp: true,
-						preferUdp: true,
-					});
-					const recvTransport = await router.createWebRtcTransport({
-						webRtcServer,
-						enableTcp: true,
-						enableUdp: true,
-						preferUdp: true,
-					});
-					const transportsConfig = {
+			rooms.push({ id: roomRef.id, router, users: [] });
+			callback({ id: roomRef.id, name: roomName });
+		});
+
+		socket.on(
+			"start-call",
+			async ({ rtpCapabilities, roomId, userId }, callback) => {
+				const thisRoom = rooms.find((room) => room.id === roomId);
+				const sendTransport = await thisRoom?.router.createWebRtcTransport({
+					listenIps,
+				});
+				const recvTransport = await thisRoom?.router.createWebRtcTransport({
+					listenIps,
+				});
+				if (sendTransport && recvTransport) {
+					const user: User = {
+						id: userId as string,
+						rtpCapabilities,
+						sendTransport,
+						recvTransport,
+						producers: [],
+						consumers: [],
+					};
+					thisRoom!.users.push(user);
+					callback({
 						sendTransport: {
 							id: sendTransport.id,
 							iceParameters: sendTransport.iceParameters,
@@ -108,133 +120,152 @@ const topLevelAsync = async () => {
 							iceCandidates: recvTransport.iceCandidates,
 							dtlsParameters: recvTransport.dtlsParameters,
 						},
-					};
-					await change.doc.ref.update({ transportsConfig });
-					change.doc.ref.onSnapshot((snapshot) => {
-						if (snapshot.exists) {
-							if (
-								snapshot.data()!.sendDtls &&
-								sendTransport.iceState === "new"
-							) {
-								sendTransport.connect({
-									dtlsParameters: snapshot.data()!.sendDtls,
-								});
-								console.log("sendTransport Connected");
-							}
-							if (
-								snapshot.data()!.recvDtls &&
-								recvTransport.iceState === "new"
-							) {
-								recvTransport.connect({
-									dtlsParameters: snapshot.data()!.recvDtls,
-								});
-								console.log("recvTransport Connected");
-							}
-						}
-					});
-					const producersCollection = change.doc.ref.collection("producers");
-					producersCollection.onSnapshot((snapshot) => {
-						snapshot.docChanges().forEach(async (change2) => {
-							if (change2.type === "added") {
-								const { transportId, kind, rtpParameters } = change2.doc.data();
-								const producer = await sendTransport.produce({
-									//id: transportId
-									kind,
-									rtpParameters,
-								});
-								await change2.doc.ref.update({
-									serverProducer: producer.id,
-								});
-								const currentUsers = await usersCollection
-									.where(
-										firestore.FieldPath.documentId(),
-										"!=",
-										change.doc.ref.id
-									)
-									.get();
-								currentUsers.forEach(async (user) => {
-									const consumersColletion = user.ref.collection("consumers");
-									const { rtpCapabilities } = user.data();
-									if (
-										router.canConsume({
-											producerId: producer.id,
-											rtpCapabilities,
-										})
-									) {
-										const consumer = await recvTransport.consume({
-											producerId: producer.id,
-											rtpCapabilities,
-											paused: true,
-										});
-										const consumerRef = consumersColletion.doc();
-										await consumerRef.set({
-											userId: change.doc.ref.id,
-											consumerId: consumer.id,
-											producerId: producer.id,
-											kind,
-											rtpParameters: consumer.rtpParameters,
-										});
-										consumerRef.onSnapshot(async (snapshot) => {
-											if (snapshot.exists) {
-												await consumer.resume();
-												console.log("consumer Resumed");
-											}
-										});
-									}
-								});
-								console.log(`${kind} producer Created`);
-							}
-						});
-					});
-					const consumersColletion = change.doc.ref.collection("consumers");
-					const currentUsers = await usersCollection
-						.where(firestore.FieldPath.documentId(), "!=", change.doc.ref.id)
-						.get();
-					currentUsers.forEach(async (user) => {
-						const userProcuersColletion = user.ref.collection("producers");
-						const producers = await userProcuersColletion.get();
-						producers.forEach(async (userProducer) => {
-							const { serverProducer, kind } = userProducer.data();
-							const { rtpCapabilities } = change.doc.data();
-							if (
-								router.canConsume({
-									producerId: serverProducer,
-									rtpCapabilities: change.doc.data().rtpCapabilities,
-								})
-							) {
-								const consumer = await recvTransport.consume({
-									producerId: serverProducer,
-									rtpCapabilities,
-									paused: true,
-								});
-								const consumerRef = consumersColletion.doc();
-								await consumerRef.set({
-									userId: user.id,
-									consumerId: consumer.id,
-									producerId: serverProducer,
-									kind,
-									rtpParameters: consumer.rtpParameters,
-								});
-								consumerRef.onSnapshot(async (newDoc) => {
-									if (newDoc.exists) {
-										await consumer.resume();
-										console.log("consumer resumed");
-									}
-								});
-							}
-						});
 					});
 				}
+			}
+		);
+
+		socket.on(
+			"sendtransport-connect",
+			async ({ dtlsParameters, roomId, userId }, callback) => {
+				const thisRoom = rooms.find((room) => room.id === roomId);
+				const thisUser = thisRoom?.users.find((user) => user.id === userId);
+				await thisUser?.sendTransport.connect({ dtlsParameters });
+				callback("sendtransport-connected");
+			}
+		);
+
+		socket.on(
+			"recvtransport-connect",
+			async ({ dtlsParameters, roomId, userId }, callback) => {
+				const thisRoom = rooms.find((room) => room.id === roomId);
+				const thisUser = thisRoom!.users.find((user) => user.id === userId);
+				await thisUser?.recvTransport.connect({ dtlsParameters });
+				callback("recvtransport-connected");
+			}
+		);
+
+		socket.on(
+			"producer-create",
+			async ({ parameters, roomId, userId }, callback) => {
+				const thisRoom = rooms.find((room) => room.id === roomId);
+				const thisUser = thisRoom?.users.find((user) => user.id === userId);
+				const producer = await thisUser!.sendTransport.produce({
+					kind: parameters.kind,
+					rtpParameters: parameters.rtpParameters,
+				});
+				if (producer) {
+					thisUser!.producers.push(producer);
+					const otherUsers = thisRoom?.users.filter(
+						(user) => user.id !== thisUser?.id
+					);
+					otherUsers?.forEach(async (user) => {
+						if (
+							thisRoom?.router.canConsume({
+								producerId: producer.id,
+								rtpCapabilities: user.rtpCapabilities,
+							})
+						) {
+							const consumer = await user.recvTransport.consume({
+								producerId: producer.id,
+								rtpCapabilities: user.rtpCapabilities,
+								paused: true,
+							});
+							user.consumers.push(consumer);
+							socket.broadcast.to(roomId).emit("consumer-create", {
+								id: consumer.id,
+								producerId: producer.id,
+								kind: consumer.kind,
+								rtpParameters: consumer.rtpParameters,
+								userId: thisUser?.id,
+							});
+						}
+					});
+					callback(producer.id);
+				}
+			}
+		);
+		socket.on(
+			"consumer-created",
+			async ({ id: consumerId, roomId, userId }, callback) => {
+				const thisRoom = rooms.find((room) => room.id === roomId);
+				const thisUser = thisRoom?.users.find((user) => user.id === userId);
+				const consumer = thisUser?.consumers.find(
+					(userConsumer) => userConsumer.id === consumerId
+				);
+				await consumer?.resume();
+				callback("consumer-resumed");
+			}
+		);
+
+		socket.on("ready-to-consume", ({ roomId, userId }) => {
+			const thisRoom = rooms.find((room) => room.id === roomId);
+			const thisUser = thisRoom?.users.find((user) => user.id === userId);
+			const otherUsers = thisRoom!.users.filter(
+				(user) => user.id !== thisUser!.id
+			);
+			otherUsers.forEach((user) => {
+				user.producers.forEach(async (producer) => {
+					if (
+						thisRoom!.router.canConsume({
+							producerId: producer.id,
+							rtpCapabilities: thisUser!.rtpCapabilities,
+						})
+					) {
+						const consumer = await thisUser!.recvTransport.consume({
+							producerId: producer.id,
+							rtpCapabilities: thisUser!.rtpCapabilities,
+							paused: true,
+						});
+						thisUser!.consumers.push(consumer);
+						socket.emit("consumer-create", {
+							id: consumer.id,
+							producerId: producer.id,
+							kind: consumer.kind,
+							rtpParameters: consumer.rtpParameters,
+							userId: user.id,
+						});
+					}
+				});
 			});
 		});
 
-		// Sending the room ID back to the client
-		res.status(200).send(roomRef.id);
+		socket.on("get-messages", async (roomId, callback) => {
+			const roomRef = roomsCollection.doc(roomId);
+			const messagesCollection = roomRef.collection("messages");
+			const messagesRefArray = await messagesCollection
+				.orderBy("date", "asc")
+				.get();
+			const messages: Array<firestore.DocumentData> = [];
+			messagesRefArray.docs.forEach((message) => {
+				const data = message.data();
+				messages.push({ id: message.id, ...data });
+			});
+			callback(messages);
+		});
+
+		socket.on("send-message", async ({ roomId, userId, text }, callback) => {
+			const roomRef = roomsCollection.doc(roomId);
+			const messagesCollection = roomRef.collection("messages");
+			const messageRef = messagesCollection.doc();
+			await messageRef.set({ owner: userId, text, date: Timestamp.now() });
+			const { date } = (
+				await messageRef.get()
+			).data() as firestore.DocumentData;
+			socket.broadcast
+				.to(roomId)
+				.emit("recv-message", { id: messageRef.id, userId, text, date });
+			callback({ id: messageRef.id, userId, text, date });
+		});
+
+		socket.on("check-status", (roomId) => {
+			console.log(rooms.find((room) => room.id === roomId)?.users);
+		});
 	});
 
-	app.listen(3000, () => {
-		console.log("server running");
+	server.listen(3000, () => {
+		console.log("Server listening on port 3000");
 	});
 };
 
-topLevelAsync();
+runAsync();

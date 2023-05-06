@@ -16,6 +16,9 @@ COPY . .
 # Install dependecies for backend
 RUN npm --prefix ./backend install
 
+# Compile backend to JS
+RUN npx --prefix tsc
+
 # Install dependecies for frontend
 RUN npm --prefix ./frontend install
 
