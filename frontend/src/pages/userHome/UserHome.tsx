@@ -22,7 +22,7 @@ export default function UserHome(props: React.ComponentPropsWithRef<"main">) {
 	const [drawerOpen, setDraweOpen] = React.useState<boolean>(false);
 	const [createUserModalOpen, setCreateUserModalOpen] =
 		React.useState<boolean>(false);
-	const socket = io("http://localhost:3000");
+	const socket = io("http://34.30.115.232");
 
 	const user = React.useContext(UserContext);
 
