@@ -8,7 +8,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y python3.6 python3-pip build-essential
 
 # Set environment variable
-ENV GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS
+COPY $GOOGLE_APPLICATION_CREDENTIALS ./firebase_key.json
+ENV GOOGLE_APPLICATION_CREDENTIALS=./firebase_key.json
 
 # Copy the project files
 COPY . .
